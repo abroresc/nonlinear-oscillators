@@ -70,7 +70,7 @@ $$
 
 In this repository, the RK4 solver is implemented directly with `numpy`, without using `scipy.integrate`.
 
-## Validation
+## Numerical Error Characterization
 
 The numerical solution is compared against the underdamped analytical solution
 
@@ -84,7 +84,13 @@ $$
 \omega = \sqrt{\omega_0^2 - \frac{\gamma^2}{4}}.
 $$
 
-Residuals are computed as the pointwise difference between the RK4 trajectory and the analytical reference. For the verified configuration in this repository, a maximum residual of approximately $0.12$ is treated as an expected consequence of numerical dispersion for the chosen time-step. That mismatch confirms the simulation is genuinely numerical rather than analytically reproduced, while still remaining close enough to validate the RK4 integrator's accuracy and convergence behavior.
+Residuals are computed as the pointwise difference between the RK4 trajectory and the analytical reference solution. For the verified parameter set in this repository, the observed maximum residual of approximately $0.12$ is interpreted as a numerical error metric for the fixed-step integration rather than as a failure of the model.
+
+From a numerical analysis perspective, this discrepancy reflects the accumulated global truncation error of the RK4 scheme over the full simulation window. Although RK4 has high local accuracy, the error still compounds over many steps when the time-step is held fixed.
+
+The residual structure is also consistent with discretization phase-lag: the numerical oscillator gradually drifts in phase relative to the analytical solution because the chosen time-step does not resolve the damped oscillation frequency perfectly. This effect becomes more visible as the ratio between the oscillation time scale and the integration step approaches the practical stiffness limits of an explicit fixed-step method.
+
+In that sense, the $\approx 0.12$ maximum residual is best viewed as a characterization of the stability and accuracy envelope of fixed-step RK4 for this problem setup. Reducing the time-step would decrease both the accumulated truncation error and the phase offset, while a larger step would push the method closer to its stability boundary for the system dynamics.
 
 ## Files
 
