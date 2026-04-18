@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-"""Simulate a damped harmonic oscillator with RK4 and compare to the underdamped analytical solution.
-
-Equation of motion:
-    d^2x/dt^2 + gamma * dx/dt + omega_0^2 * x = 0
-
-Converted to a first-order system with y = [x, v]:
-    dx/dt = v
-    dv/dt = -gamma * v - omega_0^2 * x
-"""
-
-from __future__ import annotations
 
 import argparse
 from pathlib import Path
@@ -17,30 +6,23 @@ from pathlib import Path
 import numpy as np
 
 
-def oscillator_rhs(state: np.ndarray, gamma: float, omega_0: float) -> np.ndarray:
-    """Return the time derivative [dx/dt, dv/dt] for the damped oscillator."""
+def rhs(state: np.ndarray, gamma: float, omega_0: float) -> np.ndarray:
     x, v = state
+    # x in m, v in m/s, gamma in s^-1, omega_0 in rad/s.
+    # Writing x'' + gamma x' + omega_0^2 x = 0 as a first-order pair.
     return np.array([v, -gamma * v - omega_0**2 * x], dtype=float)
 
 
 def rk4_step(state: np.ndarray, dt: float, gamma: float, omega_0: float) -> np.ndarray:
-    """Advance the state by one RK4 step."""
-    k1 = oscillator_rhs(state, gamma, omega_0)
-    k2 = oscillator_rhs(state + 0.5 * dt * k1, gamma, omega_0)
-    k3 = oscillator_rhs(state + 0.5 * dt * k2, gamma, omega_0)
-    k4 = oscillator_rhs(state + dt * k3, gamma, omega_0)
+    k1 = rhs(state, gamma, omega_0)
+    k2 = rhs(state + 0.5 * dt * k1, gamma, omega_0)
+    k3 = rhs(state + 0.5 * dt * k2, gamma, omega_0)
+    k4 = rhs(state + dt * k3, gamma, omega_0)
     return state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
 
 
-def solve_rk4(
-    t: np.ndarray,
-    x0: float,
-    v0: float,
-    gamma: float,
-    omega_0: float,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Solve the oscillator numerically with RK4 on a uniform time grid."""
-    states = np.zeros((t.size, 2), dtype=float)
+def integrate_trajectory(t: np.ndarray, x0: float, v0: float, gamma: float, omega_0: float) -> tuple[np.ndarray, np.ndarray]:
+    states = np.empty((t.size, 2), dtype=float)
     states[0] = np.array([x0, v0], dtype=float)
     dt = t[1] - t[0]
 
@@ -50,23 +32,18 @@ def solve_rk4(
     return states[:, 0], states[:, 1]
 
 
-def analytical_underdamped(
-    t: np.ndarray,
-    x0: float,
-    v0: float,
-    gamma: float,
-    omega_0: float,
-) -> tuple[np.ndarray, float, float, float]:
-    """Return x(t) = A exp(-gamma t / 2) cos(omega t + phi) for the underdamped regime."""
+def underdamped_solution(t: np.ndarray, x0: float, v0: float, gamma: float, omega_0: float) -> tuple[np.ndarray, float, float, float]:
     discriminant = omega_0**2 - (gamma**2) / 4.0
     if discriminant <= 0.0:
         raise ValueError(
-            "The analytical form used here requires an underdamped oscillator: gamma < 2 * omega_0."
+            "This closed-form comparison only works in the underdamped regime: gamma < 2 * omega_0."
         )
 
     omega = np.sqrt(discriminant)
 
-    # Match the analytical solution to the initial conditions.
+    # Determining A and phi from initial displacement and velocity.
+    # Start from x(t) = exp(-gamma t / 2) [C cos(omega t) + D sin(omega t)]
+    # and solve C = x0, D = -(v0 + gamma x0 / 2) / omega at t = 0.
     c_cos = x0
     c_sin = -(v0 + 0.5 * gamma * x0) / omega
     amplitude = np.hypot(c_cos, c_sin)
@@ -78,24 +55,24 @@ def analytical_underdamped(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Damped harmonic oscillator solved with RK4 and compared to the analytical solution."
+        description="Damped oscillator: RK4 against the underdamped analytic curve."
     )
-    parser.add_argument("--gamma", type=float, default=0.2, help="Damping coefficient.")
-    parser.add_argument("--omega0", type=float, default=1.5, help="Natural angular frequency.")
-    parser.add_argument("--x0", type=float, default=1.0, help="Initial position.")
-    parser.add_argument("--v0", type=float, default=0.0, help="Initial velocity.")
-    parser.add_argument("--tmax", type=float, default=30.0, help="Final simulation time.")
-    parser.add_argument("--steps", type=int, default=4000, help="Number of time steps.")
+    parser.add_argument("--gamma", type=float, default=0.2, help="Damping rate gamma [s^-1].")
+    parser.add_argument("--omega0", type=float, default=1.5, help="Natural angular frequency omega_0 [rad/s].")
+    parser.add_argument("--x0", type=float, default=1.0, help="Initial displacement [m].")
+    parser.add_argument("--v0", type=float, default=0.0, help="Initial velocity [m/s].")
+    parser.add_argument("--tmax", type=float, default=30.0, help="Stop time [s].")
+    parser.add_argument("--steps", type=int, default=4000, help="Number of RK4 steps.")
     parser.add_argument(
         "--save",
         type=Path,
         default=Path("oscillator.png"),
-        help="Path for the saved figure.",
+        help="Where to write the figure.",
     )
     parser.add_argument(
         "--show",
         action="store_true",
-        help="Display the figure interactively instead of only saving it.",
+        help="Open the plot window too.",
     )
     return parser
 
@@ -115,9 +92,10 @@ def main() -> None:
 
     import matplotlib.pyplot as plt
 
+    # Uniform time grid keeps the RK4 bookkeeping clean for quick parameter sweeps.
     t = np.linspace(0.0, args.tmax, args.steps + 1)
-    x_num, _ = solve_rk4(t, args.x0, args.v0, args.gamma, args.omega0)
-    x_analytic, omega, amplitude, phase = analytical_underdamped(
+    x_num, _ = integrate_trajectory(t, args.x0, args.v0, args.gamma, args.omega0)
+    x_analytic, omega, amplitude, phase = underdamped_solution(
         t, args.x0, args.v0, args.gamma, args.omega0
     )
     residuals = x_num - x_analytic
@@ -129,7 +107,7 @@ def main() -> None:
 
     axes[0].plot(t, x_num, label="RK4 numerical", linewidth=2.0)
     axes[0].plot(t, x_analytic, "--", label="Analytical underdamped", linewidth=2.0)
-    axes[0].set_ylabel("Position x(t)")
+    axes[0].set_ylabel("Position x(t) [m]")
     axes[0].set_title(
         "Damped Harmonic Oscillator\n"
         f"$\\gamma={args.gamma:.3f}$, $\\omega_0={args.omega0:.3f}$, "
@@ -140,8 +118,8 @@ def main() -> None:
 
     axes[1].plot(t, residuals, color="crimson", linewidth=1.5)
     axes[1].axhline(0.0, color="black", linestyle=":", linewidth=1.0)
-    axes[1].set_xlabel("Time t")
-    axes[1].set_ylabel("Residual")
+    axes[1].set_xlabel("Time t [s]")
+    axes[1].set_ylabel("Residual [m]")
     axes[1].set_title(f"Residuals: numerical - analytical | RMS = {rms_error:.3e}, max = {max_error:.3e}")
     axes[1].grid(True, alpha=0.3)
 
